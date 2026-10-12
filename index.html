@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BLAST Results Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#eef2f3; --panel:#ffffff; --ink:#15262b; --muted:#5d7178; --line:#d5dee1;
+  --accent:#0f6b72; --accent-ink:#ffffff; --row-alt:#f6f9fa; --hover:#e3f0f1;
+  --euk:#2f6db5; --bac:#c2761b; --arc:#8b4fb0; --vir:#3c8f4a; --oth:#6b7a80;
+  --font:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',Arial,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#101a1d; --panel:#172428; --ink:#e3edef; --muted:#93a9af; --line:#2a3d42;
+    --accent:#4fc1c9; --accent-ink:#06191b; --row-alt:#1a292d; --hover:#21383d;
+    --euk:#6ea6ec; --bac:#e7a04d; --arc:#c08be0; --vir:#74c783; --oth:#93a9af;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101a1d; --panel:#172428; --ink:#e3edef; --muted:#93a9af; --line:#2a3d42;
+  --accent:#4fc1c9; --accent-ink:#06191b; --row-alt:#1a292d; --hover:#21383d;
+  --euk:#6ea6ec; --bac:#e7a04d; --arc:#c08be0; --vir:#74c783; --oth:#93a9af;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*:before,*:after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5}
+.wrap{max-width:1500px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:26px;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+button,select,input{font-family:inherit;font-size:14px;color:var(--ink)}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* load */
+.drop{border:2px dashed var(--line);border-radius:10px;padding:26px 16px;text-align:center;transition:.15s;background:var(--row-alt)}
+.drop.over{border-color:var(--accent);background:var(--hover)}
+.drop strong{display:block;font-size:17px;margin-bottom:4px}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:7px;padding:8px 16px;font-weight:500}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.ghost:hover{background:var(--hover)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:center;margin-top:12px}
+details.paste summary{cursor:pointer;color:var(--accent);margin-top:12px;text-align:center}
+textarea{width:100%;min-height:120px;margin-top:8px;border:1px solid var(--line);border-radius:7px;background:var(--panel);padding:8px;font-family:var(--mono);font-size:12px;direction:ltr}
+
+/* stats */
+.stats{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media(min-width:860px){.stats{grid-template-columns:minmax(0,2fr) minmax(0,3fr)}}
+.big{font-size:34px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.big small{font-size:14px;font-weight:400;color:var(--muted);margin-inline-start:6px}
+.bar{display:flex;height:22px;border-radius:5px;overflow:hidden;margin:12px 0 8px;background:var(--line)}
+.bar span{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-inline-end:5px;vertical-align:-1px}
+
+/* filters */
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end}
+.f label{display:block;font-size:13px;color:var(--muted);margin-bottom:3px}
+.f input,.f select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.f input[type=number]{text-align:left}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 12px;font-size:13px;display:inline-flex;gap:6px;align-items:center}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip i{width:9px;height:9px;border-radius:50%}
+.toolbar{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:var(--panel);padding:6px 14px}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.count{color:var(--muted);font-size:14px}
+
+/* table */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px;max-height:70vh;overflow-y:auto}
+table{border-collapse:separate;border-spacing:0;width:100%;direction:ltr;font-size:13px}
+th,td{padding:7px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--panel);cursor:pointer;user-select:none;z-index:2;font-weight:500;border-bottom:2px solid var(--line)}
+th:hover{background:var(--hover)}
+th .ar{color:var(--accent);margin-left:4px;font-size:11px}
+th small{display:block;font-weight:400;color:var(--muted);font-size:11px;text-align:left}
+tbody tr:nth-child(even){background:var(--row-alt)}
+tbody tr:hover{background:var(--hover)}
+td.n{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+th.n{text-align:right}th.n small{text-align:right}
+td.id{font-family:var(--mono)}
+td.sp{white-space:normal;min-width:230px;max-width:340px}
+.tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:12px;color:#fff;font-weight:500}
+.lin{color:var(--muted);font-size:11.5px;white-space:normal;max-width:420px;min-width:260px;line-height:1.35}
+.pi{display:inline-block;height:5px;border-radius:3px;background:var(--accent);vertical-align:middle;margin-left:6px;opacity:.7}
+.empty{padding:32px;text-align:center;color:var(--muted)}
+.hide{display:none!important}
+
+/* legend of columns */
+details.cols summary{cursor:pointer;font-weight:500}
+details.cols dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0 0}
+details.cols dt{font-family:var(--mono);font-size:13px;direction:ltr;text-align:left;color:var(--accent);font-weight:500}
+details.cols dd{margin:0}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.msg{color:#b3382c;margin-top:8px;text-align:center}
+@media(max-width:600px){h1{font-size:22px}.big{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>BLAST Results Viewer</h1>
+      <p class="sub">Load a tabular BLAST results text file to get a sortable, filterable table by percent identity, E-value, taxonomy and more.</p>
+    </div>
+    <button class="btn ghost" id="themeBtn" aria-label="Toggle theme">◐</button>
+  </div>
+
+  <section class="panel" id="loader">
+    <div class="drop" id="drop">
+      <strong>Drop a BLAST results .txt file here</strong>
+      <span style="color:var(--muted)">or choose a file from your computer</span>
+      <div class="row">
+        <button class="btn" id="pick">Choose file</button>
+        <button class="btn ghost" id="sample">Load example</button>
+      </div>
+      <input type="file" id="file" accept=".txt,.tsv,.out,.csv,text/plain" class="hide">
+    </div>
+    <details class="paste">
+      <summary>Or paste the text directly</summary>
+      <textarea id="paste" placeholder="Paste BLAST rows here…"></textarea>
+      <div class="row"><button class="btn" id="parsePaste">Load text</button></div>
+    </details>
+    <div class="msg hide" id="err"></div>
+  </section>
+
+  <div id="app" class="hide">
+    <section class="panel stats">
+      <div>
+        <div class="big"><span id="sTotal">0</span><small>reads (rows) in file</small></div>
+        <div style="margin-top:8px;color:var(--muted)">Currently shown: <b id="sShown" style="color:var(--ink)">0</b> · Distinct species: <b id="sSpecies" style="color:var(--ink)">0</b></div>
+      </div>
+      <div>
+        <div class="bar" id="domBar" role="img" aria-label="Breakdown by domain"></div>
+        <div class="legend" id="domLegend"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="filters">
+        <div class="f"><label for="q">Free-text search (species, ID, taxon)</label><input id="q" type="search" placeholder="e.g. Chordata or Bacillus"></div>
+        <div class="f"><label for="minPid">Min. percent identity (%)</label><input id="minPid" type="number" step="0.5" min="0" max="100" placeholder="0"></div>
+        <div class="f"><label for="minLen">Min. alignment length (bp)</label><input id="minLen" type="number" min="0" placeholder="0"></div>
+        <div class="f"><label for="maxE">Max. E-value</label><input id="maxE" type="text" inputmode="decimal" placeholder="e.g. 1e-10" dir="ltr"></div>
+        <div class="f"><label for="minBit">Min. bit score</label><input id="minBit" type="number" min="0" placeholder="0"></div>
+        <div class="f"><label for="taxon">Taxon in lineage</label><select id="taxon"><option value="">All</option></select></div>
+        <div class="f"><label for="subject">Subject sequence (sseqid)</label><select id="subject"><option value="">All</option></select></div>
+      </div>
+      <div class="chips" id="domChips"><span class="count">Domain:</span></div>
+      <div class="chips">
+        <button class="chip" id="onlyEuk" aria-pressed="false">Hide bacteria (filter contaminants)</button>
+        <button class="btn ghost" id="reset" style="padding:4px 12px;font-size:13px">Reset filters</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div class="seg" role="group" aria-label="View">
+          <button id="vReads" aria-pressed="true">All reads</button>
+          <button id="vSpecies" aria-pressed="false">Summary by species</button>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="showLin"> Show full lineage</label>
+          <span class="count" id="cnt"></span>
+          <button class="btn ghost" id="copy">Copy as TSV</button>
+          <button class="btn ghost" id="newFile">Load another file</button>
+        </div>
+      </div>
+      <div class="tw"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+      <div class="empty hide" id="none">No rows match the current filters. Try widening them or click "Reset filters".</div>
+    </section>
+
+    <section class="panel">
+      <details class="cols">
+        <summary>Result column reference</summary>
+        <dl>
+          <dt>qseqid</dt><dd>Name or ID of your read (Query), e.g. SRR33263609.1060.</dd>
+          <dt>sseqid</dt><dd>ID of the matching sequence in the database (Subject / GenBank ID).</dd>
+          <dt>pident</dt><dd>Percentage of identity: how many of the nucleotides in the aligned region are identical between your read and the database sequence.</dd>
+          <dt>length</dt><dd>Length of the aligned region in bases (bp).</dd>
+          <dt>mismatch</dt><dd>Number of mismatches in the aligned region.</dd>
+          <dt>gapopen</dt><dd>Number of gap openings in the aligned region.</dd>
+          <dt>qstart / qend</dt><dd>Start and end positions of the alignment within your read.</dd>
+          <dt>sstart / send</dt><dd>Start and end positions of the alignment within the database subject sequence.</dd>
+          <dt>evalue</dt><dd>Statistical significance (Expect value). A very small value (e.g. 2.5e-12 or 0.0) means the hit is real and not due to chance.</dd>
+          <dt>bitscore</dt><dd>Normalized alignment score. A higher score means a better, stronger match.</dd>
+          <dt>stitle</dt><dd>Subject title: the full taxonomic lineage (domain, phylum, class…) down to the species name. Here it is split into domain, species and lineage columns.</dd>
+        </dl>
+      </details>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+const COLS=[
+ {k:'qseqid',h:'qseqid',t:'Query read',num:false,cls:'id'},
+ {k:'sseqid',h:'sseqid',t:'Subject',num:false,cls:'id'},
+ {k:'pident',h:'pident',t:'% identity',num:true},
+ {k:'length',h:'length',t:'Alignment length',num:true},
+ {k:'mismatch',h:'mismatch',t:'Mismatches',num:true},
+ {k:'gapopen',h:'gapopen',t:'Gap opens',num:true},
+ {k:'qstart',h:'qstart',t:'Query start',num:true},
+ {k:'qend',h:'qend',t:'Query end',num:true},
+ {k:'sstart',h:'sstart',t:'Subject start',num:true},
+ {k:'send',h:'send',t:'Subject end',num:true},
+ {k:'evalue',h:'evalue',t:'Expect value',num:true},
+ {k:'bitscore',h:'bitscore',t:'Bit score',num:true},
+ {k:'domain',h:'domain',t:'Domain',num:false},
+ {k:'species',h:'species',t:'Species / organism',num:false,cls:'sp'},
+];
+const SUMCOLS=[
+ {k:'species',h:'species',t:'Species / organism',num:false,cls:'sp'},
+ {k:'domain',h:'domain',t:'Domain',num:false},
+ {k:'reads',h:'reads',t:'Number of reads',num:true},
+ {k:'avgPid',h:'avg pident',t:'Mean % identity',num:true},
+ {k:'maxPid',h:'max pident',t:'Max % identity',num:true},
+ {k:'bestE',h:'best evalue',t:'Best E-value',num:true},
+ {k:'maxBit',h:'max bitscore',t:'Max bit score',num:true},
+ {k:'totLen',h:'total length',t:'Total bp',num:true},
+ {k:'sseqid',h:'sseqid',t:'Subject',num:false,cls:'id'},
+];
+const DOMCOL={Eukaryota:'var(--euk)',Bacteria:'var(--bac)',Archaea:'var(--arc)',Viruses:'var(--vir)'};
+const dcol=d=>DOMCOL[d]||'var(--oth)';
+
+let rows=[],view='reads',sort={k:'bitscore',dir:-1},domOn=new Set(),allDomains=[];
+const $=id=>document.getElementById(id);
+
+/* ---------- parsing ---------- */
+function isNum(s){return s!==undefined&&s!==''&&!isNaN(Number(s))}
+function parse(text){
+  const out=[];let last=null;
+  const lines=text.replace(/\r/g,'').split('\n');
+  for(const raw of lines){
+    if(!raw.trim())continue;
+    let f=raw.split('\t');
+    if(f.length<13){ // fallback: whitespace separated
+      const p=raw.trim().split(/\s+/);
+      f=p.slice(0,12);f.push(p.slice(12).join(' '));
+    }
+    if(f.length>=12&&isNum(f[2])&&isNum(f[3])&&isNum(f[10])){
+      const stitle=(f.slice(12).join(' ')||'').trim();
+      const r={qseqid:f[0],sseqid:f[1],pident:+f[2],length:+f[3],mismatch:+f[4],gapopen:+f[5],
+        qstart:+f[6],qend:+f[7],sstart:+f[8],send:+f[9],evalue:+f[10],evalueRaw:f[10],bitscore:+f[11],stitle};
+      enrich(r);out.push(r);last=r;
+    }else if(last){ // wrapped continuation of stitle
+      last.stitle=(last.stitle+' '+raw.trim()).trim();enrich(last);
+    }
+  }
+  return out;
+}
+function enrich(r){
+  let t=r.stitle;
+  if(t.startsWith(r.sseqid))t=t.slice(r.sseqid.length).trim();
+  else{const i=t.indexOf(' ');if(i>0&&/^[\w.\-|]+$/.test(t.slice(0,i))&&t.includes(';'))t=t.slice(i+1).trim();}
+  const parts=t.split(';').map(s=>s.trim()).filter(Boolean);
+  r.lineage=parts;
+  r.domain=parts.length>1?parts[0]:(parts[0]||'Unknown');
+  r.species=parts.length?parts[parts.length-1]:'';
+  r.lin=parts.slice(0,-1).join(' › ');
+}
+
+/* ---------- loading ---------- */
+function load(text){
+  const err=$('err');err.classList.add('hide');
+  const parsed=parse(text);
+  if(!parsed.length){err.textContent='No valid BLAST rows found. Make sure the file is in tabular format (outfmt 6) with 12 columns followed by the subject title.';err.classList.remove('hide');return}
+  rows=parsed;
+  allDomains=[...new Set(rows.map(r=>r.domain))].sort();
+  domOn=new Set(allDomains);
+  buildStatic();
+  $('loader').classList.add('hide');$('app').classList.remove('hide');
+  render();
+}
+function readFile(f){if(!f)return;const rd=new FileReader();rd.onload=()=>load(String(rd.result));rd.readAsText(f)}
+
+/* ---------- static UI pieces ---------- */
+function buildStatic(){
+  const tx={};rows.forEach(r=>new Set(r.lineage).forEach(t=>tx[t]=(tx[t]||0)+1));
+  const sel=$('taxon');sel.innerHTML='<option value="">All</option>';
+  Object.keys(tx).sort((a,b)=>a.localeCompare(b)).forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t+' ('+tx[t]+')';sel.appendChild(o)});
+  const ss={};rows.forEach(r=>ss[r.sseqid]=(ss[r.sseqid]||0)+1);
+  const s2=$('subject');s2.innerHTML='<option value="">All</option>';
+  Object.keys(ss).sort().forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t+' ('+ss[t]+')';s2.appendChild(o)});
+  const ch=$('domChips');ch.innerHTML='<span class="count">Domain:</span>';
+  allDomains.forEach(d=>{
+    const b=document.createElement('button');b.className='chip';b.setAttribute('aria-pressed','true');b.dataset.d=d;
+    b.innerHTML='<i style="background:'+dcol(d)+'"></i>'+esc(d)+' ('+rows.filter(r=>r.domain===d).length+')';
+    b.onclick=()=>{domOn.has(d)?domOn.delete(d):domOn.add(d);b.setAttribute('aria-pressed',domOn.has(d));render()};
+    ch.appendChild(b);
+  });
+  $('sTotal').textContent=rows.length.toLocaleString();
+  $('sSpecies').textContent=new Set(rows.map(r=>r.species)).size;
+  const bar=$('domBar'),lg=$('domLegend');bar.innerHTML='';lg.innerHTML='';
+  allDomains.forEach(d=>{
+    const n=rows.filter(r=>r.domain===d).length;
+    const s=document.createElement('span');s.style.width=(n/rows.length*100)+'%';s.style.background=dcol(d);s.title=d+': '+n;bar.appendChild(s);
+    lg.insertAdjacentHTML('beforeend','<span><i style="background:'+dcol(d)+'"></i>'+esc(d)+': <b>'+n+'</b> ('+(n/rows.length*100).toFixed(1)+'%)</span>');
+  });
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+/* ---------- filtering ---------- */
+function parseE(s){s=s.trim();if(!s)return null;const n=Number(s);return isNaN(n)?null:n}
+function filtered(){
+  const q=$('q').value.trim().toLowerCase();
+  const minP=parseFloat($('minPid').value),minL=parseFloat($('minLen').value),minB=parseFloat($('minBit').value);
+  const maxE=parseE($('maxE').value);
+  const tax=$('taxon').value,subj=$('subject').value;
+  return rows.filter(r=>{
+    if(!domOn.has(r.domain))return false;
+    if(!isNaN(minP)&&r.pident<minP)return false;
+    if(!isNaN(minL)&&r.length<minL)return false;
+    if(!isNaN(minB)&&r.bitscore<minB)return false;
+    if(maxE!==null&&r.evalue>maxE)return false;
+    if(tax&&!r.lineage.includes(tax))return false;
+    if(subj&&r.sseqid!==subj)return false;
+    if(q&&!(r.qseqid+' '+r.sseqid+' '+r.stitle).toLowerCase().includes(q))return false;
+    return true;
+  });
+}
+function summarize(list){
+  const m=new Map();
+  list.forEach(r=>{
+    let g=m.get(r.species);
+    if(!g){g={species:r.species,domain:r.domain,reads:0,sumPid:0,maxPid:0,bestE:Infinity,maxBit:0,totLen:0,sseqid:r.sseqid,lin:r.lin};m.set(r.species,g)}
+    g.reads++;g.sumPid+=r.pident;g.maxPid=Math.max(g.maxPid,r.pident);g.bestE=Math.min(g.bestE,r.evalue);
+    g.maxBit=Math.max(g.maxBit,r.bitscore);g.totLen+=r.length;
+  });
+  return [...m.values()].map(g=>(g.avgPid=g.sumPid/g.reads,g));
+}
+
+/* ---------- render ---------- */
+let current=[];
+function render(){
+  const list=filtered();
+  const cols=view==='reads'?COLS:SUMCOLS;
+  let data=view==='reads'?list:summarize(list);
+  if(!cols.some(c=>c.k===sort.k))sort={k:view==='reads'?'bitscore':'reads',dir:-1};
+  const k=sort.k,d=sort.dir;
+  data=data.slice().sort((a,b)=>{
+    let x=a[k],y=b[k];
+    if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),undefined,{numeric:true})*d;
+    return (x-y)*d;
+  });
+  current=data;
+  const showLin=$('showLin').checked;
+  const thead=$('tbl').tHead;
+  thead.innerHTML='<tr>'+cols.map(c=>{
+    const a=sort.k===c.k?'<span class="ar">'+(sort.dir===1?'▲':'▼')+'</span>':'';
+    return '<th class="'+(c.num?'n':'')+'" data-k="'+c.k+'" title="Click to sort">'+c.h+a+'<small>'+c.t+'</small></th>';
+  }).join('')+(showLin?'<th data-k="lin">lineage<small>Full taxonomic lineage</small></th>':'')+'</tr>';
+  thead.querySelectorAll('th').forEach(th=>th.onclick=()=>{
+    const kk=th.dataset.k;
+    if(sort.k===kk)sort.dir*=-1;else{sort.k=kk;const c=cols.find(c=>c.k===kk);sort.dir=(c&&!c.num)?1:-1}
+    render();
+  });
+  const maxPid=100;
+  $('tbl').tBodies[0].innerHTML=data.slice(0,5000).map(r=>{
+    return '<tr>'+cols.map(c=>{
+      let v=r[c.k];
+      if(c.k==='domain')return '<td><span class="tag" style="background:'+dcol(v)+'">'+esc(v)+'</span></td>';
+      if(c.k==='pident'||c.k==='avgPid'||c.k==='maxPid')return '<td class="n">'+v.toFixed(c.k==='avgPid'?2:3)+'<span class="pi" style="width:'+Math.round(v/maxPid*40)+'px"></span></td>';
+      if(c.k==='evalue'&&view==='reads')return '<td class="n">'+esc(r.evalueRaw)+'</td>';
+      if(c.k==='bestE')return '<td class="n">'+(r.bestE===0?'0.0':r.bestE.toExponential(2))+'</td>';
+      if(c.k==='bitscore'||c.k==='maxBit')return '<td class="n">'+v+'</td>';
+      return '<td class="'+(c.num?'n':(c.cls||''))+'">'+esc(v)+'</td>';
+    }).join('')+(showLin?'<td class="lin">'+esc(r.lin||'')+'</td>':'')+'</tr>';
+  }).join('');
+  $('none').classList.toggle('hide',data.length>0);
+  $('sShown').textContent=list.length.toLocaleString();
+  $('cnt').textContent=data.length.toLocaleString()+(view==='reads'?' rows':' species')+(data.length>5000?' (showing first 5,000)':'');
+}
+
+/* ---------- events ---------- */
+['q','minPid','minLen','maxE','minBit'].forEach(i=>$(i).addEventListener('input',render));
+['taxon','subject'].forEach(i=>$(i).addEventListener('change',render));
+$('showLin').onchange=render;
+$('vReads').onclick=()=>{view='reads';$('vReads').setAttribute('aria-pressed',true);$('vSpecies').setAttribute('aria-pressed',false);render()};
+$('vSpecies').onclick=()=>{view='species';$('vSpecies').setAttribute('aria-pressed',true);$('vReads').setAttribute('aria-pressed',false);render()};
+$('onlyEuk').onclick=function(){
+  const on=this.getAttribute('aria-pressed')!=='true';
+  this.setAttribute('aria-pressed',on);
+  domOn=new Set(allDomains.filter(d=>on?d!=='Bacteria':true));
+  document.querySelectorAll('#domChips .chip').forEach(c=>c.setAttribute('aria-pressed',domOn.has(c.dataset.d)));
+  render();
+};
+$('reset').onclick=()=>{
+  ['q','minPid','minLen','maxE','minBit'].forEach(i=>$(i).value='');
+  $('taxon').value='';$('subject').value='';
+  domOn=new Set(allDomains);$('onlyEuk').setAttribute('aria-pressed',false);
+  document.querySelectorAll('#domChips .chip').forEach(c=>c.setAttribute('aria-pressed',true));
+  render();
+};
+$('newFile').onclick=()=>{$('app').classList.add('hide');$('loader').classList.remove('hide')};
+$('copy').onclick=function(){
+  const cols=view==='reads'?COLS:SUMCOLS;
+  const tsv=[cols.map(c=>c.h).join('\t')].concat(current.map(r=>cols.map(c=>{
+    const v=r[c.k];return c.k==='evalue'&&view==='reads'?r.evalueRaw:(c.k==='bestE'?v:v)}).join('\t'))).join('\n');
+  const done=()=>{const o=this.textContent;this.textContent='Copied ✓';setTimeout(()=>this.textContent=o,1500)};
+  const fb=()=>{const t=document.createElement('textarea');t.value=tsv;document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}t.remove()};
+  try{navigator.clipboard.writeText(tsv).then(done,fb)}catch(e){fb()}
+};
+$('pick').onclick=()=>$('file').click();
+$('file').onchange=e=>readFile(e.target.files[0]);
+const drop=$('drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>readFile(e.dataTransfer.files[0]));
+$('parsePaste').onclick=()=>load($('paste').value);
+$('themeBtn').onclick=()=>{
+  const r=document.documentElement;
+  const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+  r.dataset.theme=dark?'light':'dark';
+};
+
+const SAMPLE=[
+"SRR33263609.1060\tOZ020585.98189090.98190918\t96.000\t50\t2\t0\t10749\t10798\t1829\t1780\t2.50e-12\t82.4\tOZ020585.98189090.98190918 Eukaryota;Amorphea;Obazoa;Opisthokonta;Holozoa;Choanozoa;Metazoa;Animalia;BCP clade;Bilateria;Deuterostomia;Chordata;Vertebrata;Gnathostomata;Euteleostomi;Actinopterygii;Neopterygii;Teleostei;Notolepis coatsorum (Antarctic jonasfish)",
+"SRR33263609.1860\tATSW01120624.1213.3029\t94.624\t93\t4\t1\t543\t635\t114\t23\t5.46e-31\t143\tATSW01120624.1213.3029 Eukaryota;Amorphea;Obazoa;Opisthokonta;Holozoa;Choanozoa;Metazoa;Animalia;BCP clade;Bilateria;Deuterostomia;Chordata;Tunicata;Ascidiacea;Stolidobranchia;Botryllus schlosseri",
+"SRR33263609.2632\tFYEQ01000015.3545.5094\t87.179\t78\t10\t0\t2480\t2557\t172\t95\t6.09e-15\t89.8\tFYEQ01000015.3545.5094 Bacteria;Bacillati;Bacillota;Bacilli;Bacillales--other;Alkalibacillaceae;Oceanobacillus;Bacillus sp. BO",
+"SRR33263609.2779\tOZ020585.98189090.98190918\t95.122\t41\t2\t0\t1980\t2020\t1787\t1827\t7.90e-08\t65.8\tOZ020585.98189090.98190918 Eukaryota;Amorphea;Obazoa;Opisthokonta;Holozoa;Choanozoa;Metazoa;Animalia;BCP clade;Bilateria;Deuterostomia;Chordata;Vertebrata;Gnathostomata;Euteleostomi;Actinopterygii;Neopterygii;Teleostei;Notolepis coatsorum (Antarctic jonasfish)",
+"SRR33263609.5098\tEU491424.1.1501\t99.599\t1498\t5\t1\t19427\t20923\t1\t1498\t0.0\t2732\tEU491424.1.1501 Bacteria;Pseudomonadati;Pseudomonadota;Gammaproteobacteria;Pseudomonadales;MBAE14;Incertae Sedis;uncultured bacterium",
+"SRR33263609.6400\tOZ020585.98189090.98190918\t97.674\t43\t1\t0\t2297\t2339\t1829\t1787\t4.10e-10\t75.0\tOZ020585.98189090.98190918 Eukaryota;Amorphea;Obazoa;Opisthokonta;Holozoa;Choanozoa;Metazoa;Animalia;BCP clade;Bilateria;Deuterostomia;Chordata;Vertebrata;Gnathostomata;Euteleostomi;Actinopterygii;Neopterygii;Teleostei;Notolepis coatsorum (Antarctic jonasfish)"
+].join('\n');
+$('sample').onclick=()=>load(SAMPLE);
+})();
+</script>
+</body>
+</html>
