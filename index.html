@@ -96,6 +96,21 @@ td.sp{white-space:normal;min-width:230px;max-width:340px}
 .empty{padding:32px;text-align:center;color:var(--muted)}
 .hide{display:none!important}
 
+/* resizable / expandable columns */
+.rz{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize}
+.rz:hover{background:var(--accent);opacity:.45}
+td.id{cursor:pointer}
+td.exp{overflow:visible;text-overflow:clip}
+/* menus */
+.menu{position:relative}
+.pop{position:absolute;top:calc(100% + 6px);right:0;z-index:30;min-width:240px;max-height:60vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.pop label.ck{display:flex;gap:8px;align-items:baseline;padding:3px 0;font-size:13px;white-space:nowrap;cursor:pointer}
+.pop label.ck small{color:var(--muted)}
+.pop label.ck span{font-family:var(--mono)}
+.presets{display:flex;gap:6px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.pop .dl{display:block;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:6px;line-height:1.3}
+.pop .dl:hover{background:var(--hover)}
+.pop .dl small{color:var(--muted)}
 /* legend of columns */
 details.cols summary{cursor:pointer;font-weight:500}
 details.cols dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:12px 0 0}
@@ -155,6 +170,7 @@ details.cols dd{margin:0}
         <div class="f"><label for="minBit">Min. bit score</label><input id="minBit" type="number" min="0" placeholder="0"></div>
         <div class="f"><label for="taxon">Taxon in lineage</label><select id="taxon"><option value="">All</option></select></div>
         <div class="f"><label for="subject">Subject sequence (sseqid)</label><select id="subject"><option value="">All</option></select></div>
+        <div class="f"><label for="topN">Show only the first N rows</label><input id="topN" type="number" min="1" step="1" placeholder="all rows"></div>
       </div>
       <div class="chips" id="domChips"><span class="count">Domain:</span></div>
       <div class="chips">
@@ -172,6 +188,14 @@ details.cols dd{margin:0}
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="showLin"> Show full lineage</label>
           <span class="count" id="cnt"></span>
+          <div class="menu"><button class="btn ghost" id="colBtn">Columns ▾</button><div class="pop hide" id="colPop"></div></div>
+          <div class="menu"><button class="btn" id="dlBtn">Download ▾</button><div class="pop hide" id="dlPop">
+            <button class="dl" id="dlXlsx"><b>Excel (.xlsx)</b><br><small>Formatted: colors, frozen header, filters</small></button>
+            <button class="dl" id="dlHtml"><b>Formatted report (.html)</b><br><small>Opens in any browser; print to PDF</small></button>
+            <button class="dl" id="dlPdf"><b>PDF</b><br><small>Table only, via the print dialog (Save as PDF)</small></button>
+            <button class="dl" id="dlJpg"><b>JPG image</b><br><small>Picture of the table (up to 500 rows)</small></button>
+            <button class="dl" id="dlCsv"><b>CSV (.csv)</b><br><small>Plain data</small></button>
+          </div></div>
           <button class="btn ghost" id="copy">Copy as TSV</button>
           <button class="btn ghost" id="newFile">Load another file</button>
         </div>
@@ -345,23 +369,28 @@ function summarize(list){
 let current=[];
 function render(){
   const list=filtered();
-  const cols=view==='reads'?COLS:SUMCOLS;
+  const allCols=view==='reads'?COLS:SUMCOLS;
+  const cols=allCols.filter(c=>!hidden[view].has(c.k));
+  if(popFor!==view){buildColPop();popFor=view}
   let data=view==='reads'?list:summarize(list);
-  if(!cols.some(c=>c.k===sort.k))sort={k:view==='reads'?'bitscore':'reads',dir:-1};
+  if(!allCols.some(c=>c.k===sort.k))sort={k:view==='reads'?'bitscore':'reads',dir:-1};
   const k=sort.k,d=sort.dir;
   data=data.slice().sort((a,b)=>{
     let x=a[k],y=b[k];
     if(typeof x==='string'||typeof y==='string')return String(x).localeCompare(String(y),undefined,{numeric:true})*d;
     return (x-y)*d;
   });
+  const topN=parseInt($('topN').value,10);
+  if(topN>0)data=data.slice(0,topN);
   current=data;
   const showLin=$('showLin').checked;
   const thead=$('tbl').tHead;
   thead.innerHTML='<tr>'+cols.map(c=>{
     const a=sort.k===c.k?'<span class="ar">'+(sort.dir===1?'▲':'▼')+'</span>':'';
-    return '<th class="'+(c.num?'n':'')+'" data-k="'+c.k+'" title="Click to sort">'+c.h+a+'<small>'+c.t+'</small></th>';
+    return '<th class="'+(c.num?'n':'')+' c-'+c.k+'" data-k="'+c.k+'" title="Click to sort">'+c.h+a+'<small>'+c.t+'</small><span class="rz" title="Drag to resize"></span></th>';
   }).join('')+(showLin?'<th data-k="lin">lineage<small>Full taxonomic lineage</small></th>':'')+'</tr>';
-  thead.querySelectorAll('th').forEach(th=>th.onclick=()=>{
+  thead.querySelectorAll('th').forEach(th=>th.onclick=e=>{
+    if(e.target.classList.contains('rz'))return;
     const kk=th.dataset.k;
     if(sort.k===kk)sort.dir*=-1;else{sort.k=kk;const c=cols.find(c=>c.k===kk);sort.dir=(c&&!c.num)?1:-1}
     render();
@@ -378,13 +407,246 @@ function render(){
       return '<td class="'+(c.num?'n':(c.cls||''))+'">'+esc(v)+'</td>';
     }).join('')+(showLin?'<td class="lin">'+esc(r.lin||'')+'</td>':'')+'</tr>';
   }).join('');
+  [...$('tbl').tBodies[0].rows].forEach(tr=>{for(let i=0;i<cols.length&&i<tr.cells.length;i++){const td=tr.cells[i];td.classList.add('c-'+cols[i].k);if(td.classList.contains('id'))td.title=td.textContent}});
   $('none').classList.toggle('hide',data.length>0);
-  $('sShown').textContent=list.length.toLocaleString();
+  $('sShown').textContent=(topN>0&&view==='reads'?Math.min(list.length,topN):list.length).toLocaleString();
   $('cnt').textContent=data.length.toLocaleString()+(view==='reads'?' rows':' species')+(data.length>5000?' (showing first 5,000)':'');
 }
 
+/*EXPORT-START*/
+let hidden={reads:new Set(),species:new Set()},popFor=null;
+const ESS={reads:['qseqid','pident','length','evalue','bitscore','domain','species'],species:['species','domain','reads','avgPid','bestE','maxBit']};
+function buildColPop(){
+  const all=view==='reads'?COLS:SUMCOLS,pop=$('colPop');
+  pop.innerHTML='<div class="presets"><button class="chip" data-p="all">Show all</button><button class="chip" data-p="ess">Essential only</button></div>'+
+    all.map(c=>'<label class="ck"><input type="checkbox" data-k="'+c.k+'"'+(hidden[view].has(c.k)?'':' checked')+'><span>'+c.h+'</span><small>'+c.t+'</small></label>').join('');
+  pop.querySelectorAll('input').forEach(i=>i.onchange=()=>{i.checked?hidden[view].delete(i.dataset.k):hidden[view].add(i.dataset.k);render()});
+  pop.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{
+    hidden[view]=new Set(b.dataset.p==='all'?[]:all.filter(c=>!ESS[view].includes(c.k)).map(c=>c.k));
+    buildColPop();render();
+  });
+}
+function expVal(c,r){
+  const k=c.k;
+  if(k==='evalue'&&view==='reads')return {n:Number(r.evalueRaw),t:r.evalueRaw,f:'sci'};
+  if(k==='bestE')return {n:r.bestE,t:r.bestE===0?'0.0':r.bestE.toExponential(2),f:'sci'};
+  if(k==='pident'||k==='maxPid')return {n:r[k],t:r[k].toFixed(3),f:'d3'};
+  if(k==='avgPid')return {n:r.avgPid,t:r.avgPid.toFixed(2),f:'d2'};
+  if(k==='domain')return {s:r.domain,t:r.domain,f:'text',dom:true};
+  if(c.num)return {n:r[k],t:String(r[k]),f:'num'};
+  return {s:String(r[k]),t:String(r[k]),f:'text'};
+}
+function tableModel(){
+  const all=view==='reads'?COLS:SUMCOLS;
+  const cols=all.filter(c=>!hidden[view].has(c.k));
+  const showLin=$('showLin').checked;
+  const head=cols.map(c=>({h:c.h,t:c.t,k:c.k}));
+  if(showLin)head.push({h:'lineage',t:'Full taxonomic lineage',k:'lin'});
+  const body=current.map(r=>{
+    const cells=cols.map(c=>expVal(c,r));
+    if(showLin)cells.push({s:r.lin||'',t:r.lin||'',f:'text'});
+    return cells;
+  });
+  return {head,body};
+}
+function baseName(){return view==='reads'?'blast_reads':'blast_species_summary'}
+function save(blob,name){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+}
+/* CSV */
+function buildCsv(){
+  const m=tableModel(),q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const lines=[m.head.map(h=>q(h.h)).join(',')].concat(m.body.map(r=>r.map(c=>q(c.t)).join(',')));
+  return new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+}
+/* Formatted HTML report */
+function buildReport(){
+  const m=tableModel();
+  const DC={Eukaryota:'#2f6db5',Bacteria:'#c2761b',Archaea:'#8b4fb0',Viruses:'#3c8f4a'};
+  const th=m.head.map(h=>'<th>'+esc(h.h)+'<small>'+esc(h.t)+'</small></th>').join('');
+  const trs=m.body.map(r=>'<tr>'+r.map(c=>c.dom
+    ?'<td><span class="tag" style="background:'+(DC[c.s]||'#6b7a80')+'">'+esc(c.s)+'</span></td>'
+    :'<td class="'+(c.f==='text'?'t':'n')+'">'+esc(c.t)+'</td>').join('')+'</tr>').join('');
+  const css='body{font-family:Segoe UI,Arial,sans-serif;color:#15262b;margin:24px}h1{margin:0 0 4px;font-size:22px}p{margin:0 0 16px;color:#5d7178;font-size:13px}'+
+   'table{border-collapse:collapse;font-size:12px;width:100%}th{background:#0f6b72;color:#fff;padding:7px 9px;text-align:center;font-weight:600;position:sticky;top:0}'+
+   'th small{display:block;font-weight:400;opacity:.8;font-size:10.5px}td{padding:5px 9px;border:1px solid #d5dee1;white-space:nowrap}'+
+   'tr:nth-child(even) td{background:#f2f7f8}td.n{text-align:right;font-family:Consolas,monospace}td.t{max-width:380px;white-space:normal}'+
+   '.tag{display:inline-block;padding:1px 8px;border-radius:4px;color:#fff;font-weight:600;font-size:11px}@page{size:landscape;margin:12mm}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}';
+  return new Blob(['<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>BLAST results</title><style>'+css+'</style></head><body><h1>BLAST results'+(view==='reads'?'':' – summary by species')+'</h1><p>'+m.body.length.toLocaleString()+(view==='reads'?' rows':' species')+'</p><table><thead><tr>'+th+'</tr></thead><tbody>'+trs+'</tbody></table></body></html>'],{type:'text/html;charset=utf-8'});
+}
+/* Real .xlsx (minimal writer, no libraries) */
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function zipFiles(files){
+  const enc=new TextEncoder(),parts=[],cd=[];let off=0;
+  files.forEach(f=>{
+    const nm=enc.encode(f.name),data=enc.encode(f.text),crc=crc32(data),sz=data.length;
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(12,33,true);
+    lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(lh.buffer),nm,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(14,33,true);
+    ch.setUint32(16,crc,true);ch.setUint32(20,sz,true);ch.setUint32(24,sz,true);ch.setUint16(28,nm.length,true);ch.setUint32(42,off,true);
+    cd.push(new Uint8Array(ch.buffer),nm);
+    off+=30+nm.length+sz;
+  });
+  const cdSize=cd.reduce((a,b)=>a+b.length,0);
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);end.setUint16(10,files.length,true);end.setUint32(12,cdSize,true);end.setUint32(16,off,true);
+  return new Blob(parts.concat(cd,[new Uint8Array(end.buffer)]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function colLetter(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
+function buildXlsx(){
+  const m=tableModel();
+  const DOMS=['Eukaryota','Bacteria','Archaea','Viruses'];
+  const KIND={text:0,num:1,d3:2,d2:3,sci:4},NF=[0,0,164,2,11],AL=['left','right','right','right','right'];
+  const fills=['FF0F6B72','FFF2F7F8','FFD6E4F5','FFF7E3C8','FFE8D9F1','FFD5EBD9','FFE2E6E8'];
+  let xfs='<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>';
+  xfs+='<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>';
+  for(let k=0;k<5;k++)for(let z=0;z<2;z++)xfs+='<xf numFmtId="'+NF[k]+'" fontId="0" fillId="'+(z?3:0)+'" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="'+AL[k]+'" vertical="center"/></xf>';
+  for(let i=0;i<5;i++)xfs+='<xf numFmtId="0" fontId="2" fillId="'+(4+i)+'" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>';
+  const bd='<border><left style="thin"><color rgb="FFD5DEE1"/></left><right style="thin"><color rgb="FFD5DEE1"/></right><top style="thin"><color rgb="FFD5DEE1"/></top><bottom style="thin"><color rgb="FFD5DEE1"/></bottom><diagonal/></border>';
+  const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.000"/></numFmts>'+
+    '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'+
+    '<fills count="9"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'+fills.map(c=>'<fill><patternFill patternType="solid"><fgColor rgb="'+c+'"/><bgColor indexed="64"/></patternFill></fill>').join('')+'</fills>'+
+    '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'+bd+'</borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+    '<cellXfs count="17">'+xfs+'</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const W={qseqid:20,sseqid:30,species:46,lin:80,domain:13};
+  const cols='<cols>'+m.head.map((h,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+(W[h.k]||14)+'" customWidth="1"/>').join('')+'</cols>';
+  const tcell=(ref,st,txt)=>'<c r="'+ref+'" s="'+st+'" t="inlineStr"><is><t xml:space="preserve">'+esc(txt)+'</t></is></c>';
+  let rowsXml='<row r="1" ht="34" customHeight="1">'+m.head.map((h,i)=>tcell(colLetter(i)+'1',1,h.h+'\n'+h.t)).join('')+'</row>';
+  m.body.forEach((r,ri)=>{
+    const z=ri%2,rn=ri+2;
+    rowsXml+='<row r="'+rn+'">'+r.map((c,ci)=>{
+      const ref=colLetter(ci)+rn;
+      if(c.dom){const di=DOMS.indexOf(c.s);return tcell(ref,12+(di<0?4:di),c.s)}
+      if(c.n!==undefined&&isFinite(c.n))return '<c r="'+ref+'" s="'+(2+KIND[c.f]*2+z)+'"><v>'+c.n+'</v></c>';
+      return tcell(ref,2+z,c.t);
+    }).join('')+'</row>';
+  });
+  const last=colLetter(m.head.length-1)+(m.body.length+1);
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'+cols+'<sheetData>'+rowsXml+'</sheetData><autoFilter ref="A1:'+last+'"/></worksheet>';
+  const R='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  return zipFiles([
+    {name:'[Content_Types].xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="'+R+'/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="'+R+'"><sheets><sheet name="BLAST results" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="'+R+'/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="'+R+'/styles" Target="styles.xml"/></Relationships>'},
+    {name:'xl/styles.xml',text:styles},
+    {name:'xl/worksheets/sheet1.xml',text:sheet}
+  ]);
+}
+/*EXPORT-END*/
+$('colBtn').onclick=()=>{$('dlPop').classList.add('hide');$('colPop').classList.toggle('hide')};
+$('dlBtn').onclick=()=>{$('colPop').classList.add('hide');$('dlPop').classList.toggle('hide')};
+document.addEventListener('click',e=>{if(!e.target.closest('.menu'))document.querySelectorAll('.pop').forEach(p=>p.classList.add('hide'))});
+$('dlXlsx').onclick=()=>{save(buildXlsx(),baseName()+'.xlsx');$('dlPop').classList.add('hide')};
+$('dlHtml').onclick=()=>{save(buildReport(),baseName()+'.html');$('dlPop').classList.add('hide')};
+$('dlCsv').onclick=()=>{save(buildCsv(),baseName()+'.csv');$('dlPop').classList.add('hide')};
+$('dlPdf').onclick=()=>{
+  $('dlPop').classList.add('hide');
+  const w=window.open('','_blank');
+  if(!w){alert('The browser blocked the new tab. Allow pop-ups for this site and try again, or use the "Formatted report (.html)" download and print it.');return}
+  buildReport().text().then(html=>{
+    w.document.open();
+    w.document.write(html.replace('</body>','<script>window.addEventListener("load",function(){setTimeout(function(){window.print()},400)})<\/script></body>'));
+    w.document.close();
+  });
+};
+
+/* JPG export: table drawn on a canvas */
+function fitText(ctx,t,maxW){
+  if(ctx.measureText(t).width<=maxW)return t;
+  let lo=0,hi=t.length;
+  while(lo<hi){const mid=(lo+hi+1)>>1;if(ctx.measureText(t.slice(0,mid)+'…').width<=maxW)lo=mid;else hi=mid-1}
+  return t.slice(0,lo)+'…';
+}
+function buildJpg(){
+  return new Promise((res,rej)=>{
+    const m=tableModel(),MAX=500,total=m.body.length,truncated=total>MAX,rows=m.body.slice(0,MAX);
+    const pad=10,rh=26,hh=42,top=62,foot=truncated?30:10;
+    const F='12px "Segoe UI",Arial,sans-serif',FB='600 12px "Segoe UI",Arial,sans-serif',FM='12px Consolas,"Courier New",monospace',FS='10.5px "Segoe UI",Arial,sans-serif';
+    const cv=document.createElement('canvas'),ctx=cv.getContext('2d');
+    const isText=m.head.map((h,i)=>!rows.length||rows[0][i].f==='text');
+    const ws=m.head.map((h,i)=>{
+      ctx.font=FB;let w=ctx.measureText(h.h).width;
+      ctx.font=FS;w=Math.max(w,ctx.measureText(h.t).width);
+      ctx.font=isText[i]?F:FM;
+      rows.forEach(r=>{w=Math.max(w,ctx.measureText(r[i].t).width+(r[i].dom?14:0))});
+      return Math.min(h.k==='lin'?520:380,w)+pad*2;
+    });
+    const W=Math.ceil(ws.reduce((a,b)=>a+b,0)),H=top+hh+rows.length*rh+foot;
+    let s=rows.length<=150?2:1;
+    if(W*s>16000||W*s*H*s>120e6)s=1;
+    if(W>16000||H>16000){rej(new Error('too big'));return}
+    cv.width=W*s;cv.height=H*s;
+    const c=cv.getContext('2d');c.scale(s,s);c.textBaseline='middle';
+    c.fillStyle='#ffffff';c.fillRect(0,0,W,H);
+    c.fillStyle='#15262b';c.font='bold 18px "Segoe UI",Arial,sans-serif';c.textAlign='left';
+    c.fillText('BLAST results'+(view==='reads'?'':' \u2013 summary by species'),pad,24);
+    c.fillStyle='#5d7178';c.font=F;
+    c.fillText(Math.min(total,MAX).toLocaleString()+(view==='reads'?' rows':' species'),pad,46);
+    const DC={Eukaryota:'#2f6db5',Bacteria:'#c2761b',Archaea:'#8b4fb0',Viruses:'#3c8f4a'};
+    let x=0;const xs=[];
+    m.head.forEach((h,i)=>{
+      xs.push(x);
+      c.fillStyle='#0f6b72';c.fillRect(x,top,ws[i],hh);
+      c.textAlign='center';
+      c.fillStyle='#ffffff';c.font=FB;c.fillText(fitText(c,h.h,ws[i]-pad),x+ws[i]/2,top+15);
+      c.fillStyle='rgba(255,255,255,.8)';c.font=FS;c.fillText(fitText(c,h.t,ws[i]-pad),x+ws[i]/2,top+30);
+      x+=ws[i];
+    });
+    rows.forEach((r,ri)=>{
+      const y=top+hh+ri*rh;
+      if(ri%2){c.fillStyle='#f2f7f8';c.fillRect(0,y,W,rh)}
+      r.forEach((cell,i)=>{
+        const cx=xs[i],cw=ws[i],cy=y+rh/2;
+        if(cell.dom){
+          c.font=FB;const tw=c.measureText(cell.t).width;
+          c.fillStyle=DC[cell.s]||'#6b7a80';c.fillRect(cx+(cw-tw-14)/2,y+4,tw+14,rh-8);
+          c.fillStyle='#ffffff';c.textAlign='center';c.fillText(cell.t,cx+cw/2,cy);
+        }else{
+          c.fillStyle='#15262b';c.font=isText[i]?F:FM;
+          const t=fitText(c,cell.t,cw-pad*2);
+          if(isText[i]){c.textAlign='left';c.fillText(t,cx+pad,cy)}else{c.textAlign='right';c.fillText(t,cx+cw-pad,cy)}
+        }
+      });
+    });
+    c.strokeStyle='#d5dee1';c.lineWidth=1;c.beginPath();
+    for(let ri=0;ri<=rows.length;ri++){const y=top+hh+ri*rh+.5;c.moveTo(0,y);c.lineTo(W,y)}
+    xs.concat([W]).forEach(px=>{c.moveTo(px+.5,top);c.lineTo(px+.5,top+hh+rows.length*rh)});
+    c.stroke();
+    if(truncated){c.fillStyle='#5d7178';c.font=F;c.textAlign='left';c.fillText('Showing the first '+MAX+' of '+total.toLocaleString()+' rows. Use Excel or PDF for the full table.',pad,top+hh+rows.length*rh+16)}
+    cv.toBlob(b=>b?res(b):rej(new Error('toBlob failed')),'image/jpeg',0.93);
+  });
+}
+$('dlJpg').onclick=()=>{
+  $('dlPop').classList.add('hide');
+  buildJpg().then(b=>save(b,baseName()+'.jpg')).catch(()=>alert('Could not create the image. Try fewer rows or columns.'));
+};
+/* column width + expand */
+const colW={sseqid:150};
+function updateColStyle(){
+  let st=document.getElementById('colStyle');
+  if(!st){st=document.createElement('style');st.id='colStyle';document.head.appendChild(st)}
+  st.textContent=Object.keys(colW).map(k=>'th.c-'+k+',td.c-'+k+':not(.exp){width:'+colW[k]+'px;min-width:'+colW[k]+'px;max-width:'+colW[k]+'px;overflow:hidden;text-overflow:ellipsis}').join('\n');
+}
+updateColStyle();
+$('tbl').tHead.addEventListener('mousedown',e=>{
+  if(!e.target.classList.contains('rz'))return;
+  e.preventDefault();
+  const th=e.target.parentElement,k=th.dataset.k,x0=e.clientX,w0=th.offsetWidth;
+  const mv=ev=>{colW[k]=Math.max(60,w0+ev.clientX-x0);updateColStyle()};
+  const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up)};
+  document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+});
+$('tbl').tBodies[0].addEventListener('click',e=>{const td=e.target.closest('td.id');if(td)td.classList.toggle('exp')});
 /* ---------- events ---------- */
-['q','minPid','minLen','maxE','minBit'].forEach(i=>$(i).addEventListener('input',render));
+['q','minPid','minLen','maxE','minBit','topN'].forEach(i=>$(i).addEventListener('input',render));
 ['taxon','subject'].forEach(i=>$(i).addEventListener('change',render));
 $('showLin').onchange=render;
 $('vReads').onclick=()=>{view='reads';$('vReads').setAttribute('aria-pressed',true);$('vSpecies').setAttribute('aria-pressed',false);render()};
@@ -397,7 +659,7 @@ $('onlyEuk').onclick=function(){
   render();
 };
 $('reset').onclick=()=>{
-  ['q','minPid','minLen','maxE','minBit'].forEach(i=>$(i).value='');
+  ['q','minPid','minLen','maxE','minBit','topN'].forEach(i=>$(i).value='');
   $('taxon').value='';$('subject').value='';
   domOn=new Set(allDomains);$('onlyEuk').setAttribute('aria-pressed',false);
   document.querySelectorAll('#domChips .chip').forEach(c=>c.setAttribute('aria-pressed',true));
@@ -405,9 +667,8 @@ $('reset').onclick=()=>{
 };
 $('newFile').onclick=()=>{$('app').classList.add('hide');$('loader').classList.remove('hide')};
 $('copy').onclick=function(){
-  const cols=view==='reads'?COLS:SUMCOLS;
-  const tsv=[cols.map(c=>c.h).join('\t')].concat(current.map(r=>cols.map(c=>{
-    const v=r[c.k];return c.k==='evalue'&&view==='reads'?r.evalueRaw:(c.k==='bestE'?v:v)}).join('\t'))).join('\n');
+  const m=tableModel();
+  const tsv=[m.head.map(h=>h.h).join('\t')].concat(m.body.map(r=>r.map(c=>c.t).join('\t'))).join('\n');
   const done=()=>{const o=this.textContent;this.textContent='Copied ✓';setTimeout(()=>this.textContent=o,1500)};
   const fb=()=>{const t=document.createElement('textarea');t.value=tsv;document.body.appendChild(t);t.select();try{document.execCommand('copy');done()}catch(e){}t.remove()};
   try{navigator.clipboard.writeText(tsv).then(done,fb)}catch(e){fb()}
